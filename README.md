@@ -117,45 +117,6 @@ The practical lesson for applying AI to water treatment is that data quality and
 
 ---
 
-## How to run it
 
-**Easiest, with nothing to install:** open `compare_models_colab.ipynb` in [Google Colab](https://colab.research.google.com). Upload the notebook, `compare_models.py` and your data CSV, then run each cell.
 
-**On your own computer:**
 
-```bash
-pip install -r requirements.txt
-python compare_models.py --demo                      # check it works (synthetic data)
-python compare_models.py --data data/thesis_runs.csv # your real data
-```
-
-Results go to `results/`:
-
-- `summary.csv`: Q², RMSE and RSM in-sample R² for each metal and model
-- `factor_importance.csv`
-- `parity_<metal>.png`: predicted vs. measured for each held-out run
-- `q2_comparison.png`
-- `diagnostics.csv`: centre-replicate noise and run-order drift for each metal
-- `run_order_and_replicates.png`: removal plotted against the order runs were performed
-- `session_check.csv`: day 1 vs later comparison, and models re-tested on the last session only
-- `control_charts.png` and `control_chart_flags.csv`: Shewhart individuals charts and the runs they flag
-- `parity_<metal>.png` now shows the Gaussian process's 95% prediction interval for each run, and `summary.csv` gives the interval coverage and width
-
-`GP_hit_limit = True` means the GP pushed a length scale to its limit. This usually means that factor has almost no effect on that metal, which is worth reporting, not an error.
-
-## Data format
-
-Copy `data/thesis_runs_TEMPLATE.csv` to `data/thesis_runs.csv` and fill one row per run, using real units (not coded −2…+2 values):
-
-| Column | Meaning |
-|---|---|
-| `run` or `RunOrder` | Order the runs were actually performed in (used for the drift check) |
-| `session` (optional) | Day or batch number. If present, the program compares sessions and re-tests the models on the last one |
-| `point_type` or `PtType` | factorial / axial / center, or Design-Expert's 1 / −1 / 0 (used for the replicate check) |
-| `castor_g` | Castor-leaf mass (g) |
-| `peel_g` | Sugarcane-peel mass (g) |
-| `time_min` | Contact time (min) |
-| `temp_C` | Temperature (°C) |
-| `removal_Pb` … `removal_Fe` | % removal for each metal |
-
-You can leave a metal's column blank if you don't have it. Any column starting with `removal_` is modelled automatically.
