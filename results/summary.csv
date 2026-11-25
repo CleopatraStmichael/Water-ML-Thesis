@@ -1,0 +1,31 @@
+metal,model,n_runs,Q2_LOO,RMSE_LOO_%,GP_hit_limit,R2_in_sample
+Pb,Mean only (baseline),31,-0.068,2.3,,
+Pb,Quadratic RSM,31,-3.657,4.81,,0.252
+Pb,Gaussian process,31,-0.088,2.33,True,
+Pb,Random forest,31,-0.194,2.44,,
+Pb,Run order only (linear),31,-0.141,2.38,,
+Cu,Mean only (baseline),31,-0.068,16.83,,
+Cu,Quadratic RSM,31,-0.741,21.48,,0.457
+Cu,Gaussian process,31,-0.149,17.45,True,
+Cu,Random forest,31,-0.254,18.24,,
+Cu,Run order only (linear),31,0.324,13.39,,
+Cr,Mean only (baseline),31,-0.068,19.29,,
+Cr,Quadratic RSM,31,-1.214,27.78,,0.258
+Cr,Gaussian process,31,-0.134,19.88,True,
+Cr,Random forest,31,-0.304,21.32,,
+Cr,Run order only (linear),31,0.073,17.97,,
+Ni,Mean only (baseline),31,-0.068,4.01,,
+Ni,Quadratic RSM,31,-1.145,5.68,,0.458
+Ni,Gaussian process,31,-0.214,4.27,True,
+Ni,Random forest,31,-0.211,4.27,,
+Ni,Run order only (linear),31,0.085,3.71,,
+Cd,Mean only (baseline),31,-0.068,4.11,,
+Cd,Quadratic RSM,31,-0.968,5.58,,0.502
+Cd,Gaussian process,31,-0.175,4.31,True,
+Cd,Random forest,31,-0.428,4.75,,
+Cd,Run order only (linear),31,0.37,3.16,,
+Fe,Mean only (baseline),31,-0.068,26.1,,
+Fe,Quadratic RSM,31,-0.56,31.55,,0.601
+Fe,Gaussian process,31,-0.166,27.27,True,
+Fe,Random forest,31,-0.201,27.68,,
+Fe,Run order only (linear),31,-0.013,25.42,,

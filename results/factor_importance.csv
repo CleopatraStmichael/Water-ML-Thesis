@@ -1,0 +1,25 @@
+metal,factor,GP_length_scale,RF_importance
+Pb,Castor-leaf mass,100.0,0.141
+Pb,Sugarcane-peel mass,100.0,0.156
+Pb,Contact time,0.1,0.284
+Pb,Temperature,0.1,0.42
+Cu,Castor-leaf mass,0.1,0.226
+Cu,Sugarcane-peel mass,100.0,0.305
+Cu,Contact time,0.1,0.223
+Cu,Temperature,0.1,0.246
+Cr,Castor-leaf mass,0.202,0.323
+Cr,Sugarcane-peel mass,0.25,0.229
+Cr,Contact time,1.316,0.244
+Cr,Temperature,100.0,0.204
+Ni,Castor-leaf mass,2.251,0.222
+Ni,Sugarcane-peel mass,1.533,0.254
+Ni,Contact time,1.594,0.315
+Ni,Temperature,2.672,0.21
+Cd,Castor-leaf mass,0.1,0.211
+Cd,Sugarcane-peel mass,100.0,0.291
+Cd,Contact time,0.771,0.229
+Cd,Temperature,0.1,0.269
+Fe,Castor-leaf mass,100.0,0.177
+Fe,Sugarcane-peel mass,0.687,0.298
+Fe,Contact time,100.0,0.232
+Fe,Temperature,0.114,0.293
