@@ -34,7 +34,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import LeaveOneOut, cross_val_predict
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
-from scipy.stats import spearmanr
+from scipy.stats import mannwhitneyu, spearmanr
 
 FACTORS = ["castor_g", "peel_g", "time_min", "temp_C"]
 LABELS = {"castor_g": "Castor-leaf mass", "peel_g": "Sugarcane-peel mass",
@@ -74,6 +74,106 @@ def demo_data(seed=0):
         y = base + 1.5 * x[:, 0] + 1.0 * x[:, 2] + 1.2 * x[:, 0] * x[:, 2] - 0.8 * x[:, 1] ** 2
         df[f"removal_{metal}"] = np.clip(y + rng.normal(0, noise, len(y)), 0, 100).round(2)
     return df
+
+
+def gp_loo_with_uncertainty(X, y):
+    """Leave-one-out GP predictions WITH a standard deviation for each held-out run.
+    A well-calibrated model's 95% intervals (mean +/- 1.96 SD) should contain about 95% of measurements."""
+    mean, sd = np.zeros(len(y)), np.zeros(len(y))
+    for train, test in LeaveOneOut().split(X):
+        gp = make_models()["Gaussian process"].fit(X[train], y[train])
+        m, s = gp.predict(X[test], return_std=True)
+        mean[test], sd[test] = m, s
+    return mean, sd
+
+
+def control_chart(df, out, order):
+    """Individuals (Shewhart) control chart of removal against run order, as used to catch
+    sensor drift and process upsets in treatment plants.
+    Limits: mean +/- 3 sigma, with sigma estimated from the average moving range (MR-bar / 1.128).
+    Flags: Rule 1 = a point outside the limits; Rule 2 = 8 or more consecutive points on one side of the centre line (a shift)."""
+    targets = [c for c in df.columns if c.startswith("removal_")]
+    d = df.sort_values(order).reset_index(drop=True)
+    rows, n = [], len(targets)
+    ncol = 3 if n > 2 else n
+    nrow = int(np.ceil(n / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(4.3 * ncol, 3.2 * nrow), squeeze=False)
+    for ax, t in zip(axes.flat, targets):
+        x, y = d[order].to_numpy(float), d[t].to_numpy(float)
+        centre = y.mean()
+        sigma = np.mean(np.abs(np.diff(y))) / 1.128
+        ucl, lcl = centre + 3 * sigma, centre - 3 * sigma
+        rule1 = (y > ucl) | (y < lcl)
+        side = np.sign(y - centre)
+        rule2 = np.zeros(len(y), bool)
+        start = 0
+        for i in range(1, len(y) + 1):
+            if i == len(y) or side[i] != side[start] or side[i] == 0:
+                if i - start >= 8 and side[start] != 0:
+                    rule2[start:i] = True
+                start = i
+        ax.plot(x, y, color="#9aa5b1", lw=1, zorder=1)
+        ax.scatter(x, y, s=20, color="#1f5fa8", zorder=2)
+        ax.scatter(x[rule2], y[rule2], s=60, facecolors="none", edgecolors="#e09f3e", lw=1.5, zorder=3,
+                   label="Rule 2: 8+ in a row on one side (shift)")
+        ax.scatter(x[rule1], y[rule1], s=40, color="#d1495b", marker="X", zorder=4, label="Rule 1: outside 3σ limits")
+        for v, ls in [(centre, "-"), (ucl, "--"), (lcl, "--")]:
+            ax.axhline(v, color="black", lw=0.8, ls=ls)
+        ax.set_title(t.replace("removal_", ""), fontsize=10)
+        ax.set_xlabel("Run order")
+        ax.set_ylabel("Removal (%)")
+        rows.append({"metal": t.replace("removal_", ""), "centre_%": round(centre, 1),
+                     "LCL_%": round(lcl, 1), "UCL_%": round(ucl, 1),
+                     "rule1_runs_outside_limits": ", ".join(str(int(v)) for v in x[rule1]) or "none",
+                     "rule2_shift_runs": ", ".join(str(int(v)) for v in x[rule2]) or "none"})
+    for ax in list(axes.flat)[n:]:
+        ax.axis("off")
+    handles, labels = [], []
+    for ax in axes.flat:
+        for h, l in zip(*ax.get_legend_handles_labels()):
+            if l not in labels:
+                handles.append(h); labels.append(l)
+    fig.legend(handles, labels, loc="lower center", ncol=2, frameon=False, fontsize=9)
+    fig.suptitle("Control charts (individuals): solid = mean, dashed = ±3σ limits", fontsize=11)
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    fig.savefig(os.path.join(out, "control_charts.png"), dpi=150)
+    plt.close(fig)
+    cc = pd.DataFrame(rows)
+    cc.to_csv(os.path.join(out, "control_chart_flags.csv"), index=False)
+    return cc
+
+
+def session_check(df, out):
+    """If the file has a 'session' column (e.g. day 1 vs later days), compare the sessions and
+    re-test the ML models on the last session alone, where the process was stable."""
+    if "session" not in df.columns or df["session"].nunique() < 2:
+        return None
+    targets = [c for c in df.columns if c.startswith("removal_")]
+    first, last = df["session"].min(), df["session"].max()
+    a, b = df[df["session"] == first], df[df["session"] == last]
+    centre = centre_mask(df)
+    rows = []
+    for t in targets:
+        row = {"metal": t.replace("removal_", ""),
+               f"session_{first}_mean_%": round(a[t].mean(), 1), f"session_{first}_SD": round(a[t].std(), 1),
+               f"session_{last}_mean_%": round(b[t].mean(), 1), f"session_{last}_SD": round(b[t].std(), 1),
+               "difference_p (Mann-Whitney)": round(mannwhitneyu(a[t], b[t]).pvalue, 4)}
+        if centre is not None:
+            cb = b.loc[centre[b.index], t]
+            if len(cb) >= 2:
+                row[f"centre_SD_session_{last}"] = round(cb.std(), 1)
+        d = b[FACTORS + [t]].dropna()
+        X, y = d[FACTORS].to_numpy(float), d[t].to_numpy(float)
+        for name in ["Gaussian process", "Random forest"]:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                p = cross_val_predict(make_models()[name], X, y, cv=LeaveOneOut())
+            row[f"Q2_{name.split()[0]}_session_{last}_only"] = round(q2(y, p), 2)
+        row[f"range_session_{last}_%"] = f"{y.min():.1f}-{y.max():.1f}"
+        rows.append(row)
+    sc = pd.DataFrame(rows)
+    sc.to_csv(os.path.join(out, "session_check.csv"), index=False)
+    return sc
 
 
 def find_run_order(df):
@@ -172,13 +272,21 @@ def evaluate(df, out):
         for name, model in make_models().items():
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always", ConvergenceWarning)
-                p = cross_val_predict(model, X, y, cv=LeaveOneOut())
+                if name == "Gaussian process":
+                    p, sd = gp_loo_with_uncertainty(X, y)
+                    gp_sd = sd
+                else:
+                    p = cross_val_predict(model, X, y, cv=LeaveOneOut())
             hit_limit = any(issubclass(w.category, ConvergenceWarning) for w in caught)
             preds[name] = p
             row = {"metal": metal, "model": name, "n_runs": len(y),
                    "Q2_LOO": round(q2(y, p), 3),
                    "RMSE_LOO_%": round(float(np.sqrt(np.mean((y - p) ** 2))), 2),
                    "GP_hit_limit": hit_limit if name == "Gaussian process" else ""}
+            if name == "Gaussian process":
+                inside = np.abs(y - p) <= 1.96 * gp_sd
+                row["GP_95%_interval_coverage"] = round(float(inside.mean()), 2)
+                row["GP_mean_interval_width_%"] = round(float(np.mean(2 * 1.96 * gp_sd)), 1)
             if name == "Quadratic RSM":
                 fitted = model.fit(X, y).predict(X)
                 row["R2_in_sample"] = round(1 - np.sum((y - fitted) ** 2) / np.sum((y - y.mean()) ** 2), 3)
@@ -205,11 +313,16 @@ def evaluate(df, out):
 
         # Parity plot: LOO prediction vs measured
         fig, axes = plt.subplots(1, 3, figsize=(12, 4), sharex=True, sharey=True)
-        lo, hi = y.min() - 5, min(y.max() + 5, 105)
+        lo, hi = y.min() - 5, min(max(y.max(), preds["Gaussian process"].max()) + 5, 110)
         for ax, name in zip(axes, ["Quadratic RSM", "Gaussian process", "Random forest"]):
-            ax.scatter(y, preds[name], s=28, color="#1f5fa8", alpha=0.8)
+            if name == "Gaussian process":
+                ax.errorbar(y, preds[name], yerr=1.96 * gp_sd, fmt="o", ms=5, color="#1f5fa8",
+                            ecolor="#9ec1e6", elinewidth=1, alpha=0.9)
+            else:
+                ax.scatter(y, preds[name], s=28, color="#1f5fa8", alpha=0.8)
             ax.plot([lo, hi], [lo, hi], color="grey", lw=1, ls="--")
-            ax.set_title(f"{name}\nQ² = {q2(y, preds[name]):.2f}", fontsize=10)
+            extra = " (bars = 95% interval)" if name == "Gaussian process" else ""
+            ax.set_title(f"{name}{extra}\nQ² = {q2(y, preds[name]):.2f}", fontsize=10)
             ax.set_xlabel("Measured removal (%)")
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
         axes[0].set_ylabel("Predicted for held-out run (%)")
@@ -241,10 +354,18 @@ def evaluate(df, out):
     plt.close()
 
     diag = diagnostics(df, out)
+    cc = control_chart(df, out, order) if order else None
+    sc = session_check(df, out)
     with pd.option_context("display.width", 140, "display.max_columns", 20):
         print(summary.drop(columns=["GP_hit_limit"]).to_string(index=False))
         print("\nREPLICATE NOISE AND RUN-ORDER DRIFT")
         print(diag.to_string(index=False))
+        if cc is not None:
+            print("\nCONTROL CHART FLAGS (run numbers)")
+            print(cc.to_string(index=False))
+        if sc is not None:
+            print("\nSESSION (DAY) COMPARISON, AND MODELS RE-TESTED ON THE LAST SESSION ONLY")
+            print(sc.to_string(index=False))
     print(f"\nSaved results to {out}/")
 
 

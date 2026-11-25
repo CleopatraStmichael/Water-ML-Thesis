@@ -24,6 +24,8 @@ If all three fail on held-out runs, the limit is the data (noise and the narrow 
   - **Q²** (predictive R²). Above 0.5 is useful; below 0 is worse than guessing the average.
   - **RMSE** in % removal.
   - The RSM's in-sample R², to show the gap between fitting the data and predicting new runs.
+- Data-quality checks: spread of the centre-point replicates, correlation with run order, and control charts (Shewhart individuals chart with ±3σ limits from the average moving range; flags points outside the limits and 8 or more consecutive points on one side of the mean).
+- Uncertainty: leave-one-out 95% prediction intervals from the GP, and how often they contain the measured value.
 - Factor importance: GP length scales (shorter means a more influential factor) and RF importances.
 
 ## Results
@@ -54,16 +56,51 @@ The quadratic RSM fitted the data moderately (R² 0.25–0.60) but predicted uns
 
 When repeating the same conditions varies this much, no model can detect the effect of changing the conditions.
 
-**3. Removal drifted upward with the order in which runs were performed.** Run order correlated with removal (Spearman ρ): Cd ρ = 0.66 (p < 0.001), Cu ρ = 0.49 (p = 0.005) and Ni ρ = 0.44 (p = 0.012). On its own, the sequence number predicted Cu and Cd removal (Q² ≈ 0.3–0.4) better than all four experimental factors combined. The run-order chart shows a step change: removals were lower and more erratic in roughly the first 10 runs, then stabilised.
+**3. Removal drifted upward with the order in which runs were performed.** Run order correlated with removal (Spearman ρ): Cd ρ = 0.66 (p < 0.001), Cu ρ = 0.49 (p = 0.005) and Ni ρ = 0.44 (p = 0.012). On its own, the sequence number predicted Cu and Cd removal (Q² ≈ 0.3–0.4) better than all four experimental factors combined. The run-order chart shows a step change: removals were lower and more erratic in the first 10 runs, then stabilised.
 
 **4. Iron behaved differently.** In run 6, Fe removal was −26%, so the solution held more iron after treatment than before. The plant-based adsorbent may have released iron.
 
-**Conclusion:** within the ranges tested, the effects of adsorbent dose, time and temperature were smaller than the run-to-run variability. A time-related drift during the experiment, rather than the choice of model, is the most likely main source of that variability.
+**5. A control chart pinpoints when the process changed.** Individuals (Shewhart) control charts of removal against run order flag the same period for several metals:
+- **Cu:** runs 1, 3, 4, 8, 9 and 10 fall below the lower 3σ limit.
+- **Cr:** runs 1, 2 and 6 fall below the limit.
+- **Cd:** runs 1, 3 and 9 fall below the limit. From run 11 onward, all 21 remaining runs sit above the centre line, which is a clear shift.
+
+The process behaved differently in the first 10 runs, then settled.
+
+**6. The Gaussian process "knows what it doesn't know".** For each held-out run, the GP gives a prediction with a 95% interval. Those intervals contained 87–97% of the measured values, so the uncertainty is honest. However, the intervals were very wide: about ±4% for Pb and ±7–8% for Ni and Cd, but ±32–48% for Cu, Cr and Fe. The model fell back to roughly the average and widened its uncertainty instead of making confident wrong predictions. That is the behaviour you want from a model used for safety-relevant decisions.
+
+**7. The shift lines up with a change of day.** Runs 1–10 were performed on the first day, and run 11 began a new day, exactly where the control charts show the shift. Comparing day 1 with the later runs:
+
+| Metal | Day 1 mean (SD) | Later mean (SD) | p (Mann-Whitney) | Later centre replicates |
+|---|---|---|---|---|
+| Cu | 66.9% (15.1) | 95.7% (5.2) | < 0.001 | 96.5–99.2% |
+| Cd | 91.5% (4.3) | 98.3% (0.7) | < 0.001 | 97.3–98.8% |
+| Pb | 95.8% (2.3) | 97.8% (2.0) | 0.015 | 96.5–99.2% |
+| Ni | 92.4% (4.6) | 95.1% (3.4) | 0.10 | 89.8–97.6% |
+| Cr | 72.6% (28.8) | 90.6% (7.6) | 0.13 | 75.4–97.0% |
+| Fe | 43.0% (28.6) | 67.9% (20.2) | 0.054 | 49.5–96.8% |
+
+After day 1, the centre replicates for Cu, Cd and Pb agree closely (e.g., Cu within 3 percentage points, against 50–99% overall). So the large replicate noise was mostly a **day 1 effect**, a "block effect" in experimental-design terms. The design was not blocked by day (all runs are in one block), so this effect was confused with the effects of the factors. Cr and Fe stayed noisy in the later runs as well.
+
+**8. Even the stable runs could not be predicted, because removal was near its ceiling.** When the GP and random forest were re-tested on runs 11–31 alone, Q² was still at or below about 0 for every metal (best: random forest for Cu, 0.16). In those runs, removal of Cd (97–100%), Pb (93–99%) and Ni (89–99%) was close to 100% across almost all conditions. When nearly every run removes nearly everything, there is little difference left for the factors to explain. The adsorbent doses were large relative to the low metal concentrations (about 1–2 mg/L), so the design ranges probably sat on a performance plateau.
+
+**Conclusion:** the models failed for two reasons, neither of which a better algorithm could fix. First, a **day-to-day effect** (day 1 vs later) added large variability that the design did not account for. Second, in the stable later runs (from run 11), removal was **close to 100% under nearly all conditions**, so the factors had little left to explain within the ranges tested.
+
+## Relevance to the water industry
+
+This is a small lab dataset, not plant data. Even so, the project works through three problems that decide whether AI can be trusted at a real treatment plant:
+
+1. **Check the data before modelling it.** Treatment plants run on sensors (turbidity, chlorine, pH) that drift as they foul or lose calibration. A model trained on drifting data learns the drift, not the process. This project found the same problem, run-order drift and noisy replicates, before any model could be trusted. The control charts used here are the same tool utilities use to catch sensor faults and process upsets.
+2. **A model must beat a simple baseline.** A utility should not use a model that cannot beat "use the average" or "tomorrow will be like today". Every model here was tested against a baseline on unseen runs, and the result was reported honestly when they failed.
+3. **Report uncertainty, not just a number.** A confidently wrong prediction about water safety is dangerous. The Gaussian process reports a 95% interval for each prediction. Here those intervals were honest (they covered 87–97% of results) and wide, signalling that the data could not support confident predictions.
+
+The practical lesson for applying AI to water treatment is that data quality and validation come before model complexity.
 
 ## Limitations
 
 - 31 runs is a small dataset. Leave-one-out validation measures overfitting but cannot overcome it.
-- Run order is a stand-in for whatever changed over time. The data cannot say *what* changed. Possible causes include AAS calibration drift, adsorbent ageing or moisture uptake, storage time of samples before analysis, or improving technique.
+- The control-chart limits were calculated from all 31 runs, including the unstable early period. In a plant, limits would be set from a known stable period and then applied to new data.
+- The shift coincides with a change of day, but the data cannot say *what* changed between days. Possible causes include AAS recalibration, a freshly prepared or differently conditioned adsorbent, how long samples were stored before analysis, or room temperature.
 - The design's run order was not fully randomised against time-dependent effects. Because of this, drift can be confused with the effects of the factors.
 - Results apply to one produced-water sample and these two adsorbents.
 - Run 10's sugarcane-peel mass was set to 0 g. The design called for a negative axial value (−0.04 g), which is not physically possible.
@@ -71,13 +108,54 @@ When repeating the same conditions varies this much, no model can detect the eff
 ## What this means for the next experiments
 
 1. **Control noise first.** Use calibration check standards and blanks during every AAS session, and record dates and batches.
-2. **Randomise and block.** Randomise the run order, and record the day and adsorbent batch so drift can be modelled as a block effect.
+2. **Block by day.** Central Composite Designs can be split into blocks, so each day gets a balanced set of runs including its own centre points. Then a day effect can be estimated and removed instead of being confused with the factors. Also randomise the run order within each day.
 3. **Spread replicates through the sequence.** Space the centre-point replicates across the run order, and run more of them, to track drift.
 4. **Prepare one adsorbent batch and condition it** before starting, then store it in a desiccator.
 5. **Investigate iron release** from the bio-adsorbents. It matters for treated-water quality, especially if the adsorbents are used for drinking water.
-6. Only once replicate noise is small, return to modelling. The GP's uncertainty estimates can then guide which runs to add.
+6. **Move off the plateau.** Use higher metal concentrations or lower adsorbent doses (an isotherm study would show where) so the conditions actually produce different removals.
+7. Only once replicate noise is small, return to modelling. The GP's uncertainty estimates can then guide which runs to add.
 
 ---
 
+## How to run it
 
+**Easiest, with nothing to install:** open `compare_models_colab.ipynb` in [Google Colab](https://colab.research.google.com). Upload the notebook, `compare_models.py` and your data CSV, then run each cell.
 
+**On your own computer:**
+
+```bash
+pip install -r requirements.txt
+python compare_models.py --demo                      # check it works (synthetic data)
+python compare_models.py --data data/thesis_runs.csv # your real data
+```
+
+Results go to `results/`:
+
+- `summary.csv`: Q², RMSE and RSM in-sample R² for each metal and model
+- `factor_importance.csv`
+- `parity_<metal>.png`: predicted vs. measured for each held-out run
+- `q2_comparison.png`
+- `diagnostics.csv`: centre-replicate noise and run-order drift for each metal
+- `run_order_and_replicates.png`: removal plotted against the order runs were performed
+- `session_check.csv`: day 1 vs later comparison, and models re-tested on the last session only
+- `control_charts.png` and `control_chart_flags.csv`: Shewhart individuals charts and the runs they flag
+- `parity_<metal>.png` now shows the Gaussian process's 95% prediction interval for each run, and `summary.csv` gives the interval coverage and width
+
+`GP_hit_limit = True` means the GP pushed a length scale to its limit. This usually means that factor has almost no effect on that metal, which is worth reporting, not an error.
+
+## Data format
+
+Copy `data/thesis_runs_TEMPLATE.csv` to `data/thesis_runs.csv` and fill one row per run, using real units (not coded −2…+2 values):
+
+| Column | Meaning |
+|---|---|
+| `run` or `RunOrder` | Order the runs were actually performed in (used for the drift check) |
+| `session` (optional) | Day or batch number. If present, the program compares sessions and re-tests the models on the last one |
+| `point_type` or `PtType` | factorial / axial / center, or Design-Expert's 1 / −1 / 0 (used for the replicate check) |
+| `castor_g` | Castor-leaf mass (g) |
+| `peel_g` | Sugarcane-peel mass (g) |
+| `time_min` | Contact time (min) |
+| `temp_C` | Temperature (°C) |
+| `removal_Pb` … `removal_Fe` | % removal for each metal |
+
+You can leave a metal's column blank if you don't have it. Any column starting with `removal_` is modelled automatically.
